@@ -1,0 +1,533 @@
+---
+title: "Cohort-Based Enrollment and Revenue Modeling Pipeline"
+author: "John Schofield"
+date: "`r Sys.Date()`"
+output:
+  word_document:
+    toc: true
+    toc_depth: '2'
+  pdf_document:
+    toc: true
+    toc_depth: '2'
+  html_document:
+    theme:
+      version: 4
+      bootswatch: darkly
+    toc: true
+    toc_depth: 2
+    self_contained: false
+---
+
+```{r setup, include=FALSE}
+# if you’re on TinyTeX, make sure bookmark.sty is installed (only needed for PDF)
+if (requireNamespace("tinytex", quietly = TRUE) &&
+    tinytex::is_tinytex()) {
+  tinytex::tlmgr_install("bookmark")
+}
+
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  error   = TRUE,
+  tidy    = FALSE
+)
+```
+
+This report processes and analyzes net tuition revenue (NTR), enrollment patterns, and retention cohorts for Berklee’s BCM and BCB programs. It integrates historical and current student data from multiple internal sources, cleans and transforms them, and produces cohort-level summaries to support strategic enrollment management and financial forecasting. Office of Student Accounts (OSA) provides the historical census snapshots for NTR.
+
+Key tasks include: • Importing and cleaning datasets from Tableau Prep outputs and archived enrollment exports • Calculating term sequences and cohort codes using custom functions for comparing academic terms • Filtering and matching student-level records to reference mappings for accurate program, degree, and enrollment classification • Aggregating NTR components (tuition, institutional aid, comprehensive fees) by cohort, program, and term • Exporting results to Google Sheets and CSV for stakeholder access and downstream use
+
+Additionally, the script handles alternate matching logic for records that do not conform to standard mappings, prepares clean datasets for retention modeling, and supports fiscal year forecasting by generating low/mid/high enrollment and revenue scenarios.
+
+```{r load-libraries}
+library(readr)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(janitor)
+library(data.table)
+library(lubridate)
+library(readxl)
+library(googlesheets4)
+library(ggplot2)
+library(gt)
+```
+
+```{r term-calcs}
+term_code_to_num <- function(term) {
+  term_year <- as.integer(substr(term, 1, 4))
+  term_sem <- substr(term, 5, 6)
+  if (is.na(term_year)) return(-1)
+  to_add <- switch(term_sem, "SP" = -7, "FA" = 2, "SU" = 1, return(-1))
+  return(term_year * 10 + to_add)
+}
+
+get_next_term <- function(term_num, include_summer = TRUE) {
+  remainder <- term_num %% 10
+  if (remainder == 3) return(term_num + ifelse(include_summer, 8, 9))
+  return(term_num + 1)
+}
+
+term_int_to_str <- function(term) {
+  year <- floor(term / 10)
+  sem <- switch(term %% 10, "1" = "SU", "2" = "FA", "3" = {year <- year + 1; "SP"}, stop("Invalid term"))
+  return(paste0(year, sem))
+}
+
+get_num_terms_between <- function(term_1, term_2, include_summer = TRUE) {
+  dist <- abs(term_1 - term_2)
+  tot <- if (include_summer) (dist %/% 10) * 3 + case_when(dist %% 10 == 1 ~ 1, dist %% 10 == 2 ~ 2, dist %% 10 == 8 ~ 1, dist %% 10 == 9 ~ 2, TRUE ~ 0)
+  else (dist %/% 10) * 2 + case_when(dist %% 10 == 1 ~ 1, dist %% 10 == 9 ~ 1, TRUE ~ 0)
+  return(tot)
+}
+
+get_terms_ahead <- function(term, terms_ahead, include_summer = TRUE) {
+  years_ahead <- if (include_summer) terms_ahead %/% 3 else terms_ahead %/% 2
+  for (i in seq_len(terms_ahead %% ifelse(include_summer, 3, 2))) term <- get_next_term(term)
+  return(term + years_ahead * 10)
+}
+
+# Safe table override
+table <- function(...) base::table(...)
+```
+
+```{r  bcm_net_revenue}
+
+# Tableau Prep Flow:
+#  Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcm_osa/merged_bcm_osa/bcm_merged_nr.tfl
+
+bcm_merged_nr <- read_csv(
+  "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcm_osa/merged_bcm_osa/bcm_merged_nr.csv"
+)
+
+# BCM NTR Logic / Code ConCat
+bcm_xreference <- read_csv(
+  "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcm_osa/bcm_xreference.csv"
+)
+
+# Archive Distributions
+cohorts_term <- read_csv(
+  "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcm_osa/cohorts_202503_trimmed.csv"
+)
+
+# Tableau Prep Flow
+#  Enrollment_Marketing_Analytics/Student Financial Services Analytics/Affordability/Tableau Prep Flows/Enrollment_Archive_Flow.tfl
+enrollment_archive <- read_csv(
+  "/Volumes/Enrollment_Marketing_Analytics/Student Financial Services Analytics/Affordability/Exports/Enrollment_Archive.csv"
+)
+
+
+# Preserve Original Variable (bcm_merged_nr)
+n_nr_data <- bcm_merged_nr
+# Clean Headers and Remove Non-Numeric Variables
+nr_1 <- n_nr_data %>%
+  distinct() %>%
+  clean_names() %>%
+  # Select columns where the names do not contain numbers
+  select(matches("^[^0-9]*$|.*_rate$")) %>%
+  # Create Unique Term Key
+  rename(term_key = bcm_nr_term_key)
+str(nr_1)
+# Handle Non-Degree's and Misc Student Types
+nr_2 <- nr_1 %>%
+  filter(!is.na(student_type) | !is.na(program_active)) %>%
+  filter(
+    program_active != "UG.POST" &
+      program_active != "GRAD.UG" &
+      program_active != "SNM.MISC" &
+      program_active != "SNM.FAST" & enroll_source != "INA"
+  ) %>%
+  distinct()
+dim(nr_2)
+# Ensure the number of term_keys matches the number of rows
+{
+  length(unique(nr_2$term_key))
+  length(nr_2$term_key)
+  length(nr_2$term_key) - length(unique(nr_2$term_key))
+}
+nr_3 <- nr_2
+str(nr_3)
+
+
+# Join NTR dataset with historical cohorts dataset
+nr_4 <- nr_3 %>%
+  left_join(cohorts_term, by = "id_stu")
+
+# Take only term_key and matric source from the archives
+arch_1 <- enrollment_archive %>%
+  select(Term_Key, `BCM Matriculation Source`) %>%
+  clean_names() %>%
+  distinct()
+
+# Join archive to NTR and Cohort by term_key
+nr_4_archive <- nr_4 %>%
+  left_join(arch_1, by = "term_key")
+
+
+# Clean and Calculate Matriculation Source Summary Field
+cols_nr <- nr_4_archive %>%
+  mutate(
+    enroll_source_tmpl = case_when(
+      term == cohort ~ "ENT",
+      bcm_matriculation_source == "ENT" ~ "ENT",
+      bcm_matriculation_source == "CON" ~ "CON/RET",
+      bcm_matriculation_source == "RET" ~ "CON/RET",
+      enroll_source == "ENT" ~ "ENT",
+      enroll_source == "CON" ~ "CON/RET",
+      enroll_source == "RET" ~ "CON/RET"
+    )
+  )
+table(cols_nr$enroll_source_tmpl)
+
+# ConCat Program/Degree/Enrollment - Source Student Program + Student Type + enroll_source_tmpl
+cols_nr_2 <- cols_nr %>%
+  mutate(
+    pgm_dgr_enroll_tmpl = paste0(student_program, student_type, enroll_source_tmpl),
+    alt_pgm_dgr_enroll_tmpl = paste0(pgm_dgr_enroll_tmpl, program_active)
+  )
+
+# 1 of 2 Join - left_join with xref table
+joined <- cols_nr_2 %>%
+  left_join(bcm_xreference, by = "pgm_dgr_enroll_tmpl")
+
+# Remove Unmatched
+matched <- joined %>%
+  filter(!is.na(Region))
+
+# Isolate Unmatched
+unmatched <- joined %>%
+  filter(is.na(Region))
+
+# 2 of 2 - left_join with xref
+bcm_xreference_alt <- bcm_xreference %>%
+  rename(alt_pgm_dgr_enroll_tmpl = pgm_dgr_enroll_tmpl)
+
+find_alt_unmatch <- unmatched %>%
+  left_join(bcm_xreference_alt, by = "alt_pgm_dgr_enroll_tmpl")
+
+alt_unmatch_clean_1 <- find_alt_unmatch %>%
+  select(-ends_with(".x"))
+
+alt_unmatch_clean_2 <- alt_unmatch_clean_1 %>%
+  rename_with(~ gsub("\\.y$", "", .), ends_with(".y"))
+
+# Rejoin with Alternate Pairing
+bind_matched_alt <- bind_rows(matched, alt_unmatch_clean_2)
+bind_matched_alt <- clean_names(bind_matched_alt)
+bind_matched_alt <- bind_matched_alt %>%
+  rename(stu_enroll_type = student_type_2)
+
+bind_matched_alt <- bind_matched_alt %>%
+  filter(!is.na(enrollment_type))
+
+na_region <- bind_matched_alt %>%
+  filter(is.na(enrollment_type))
+
+# write_csv(x = bind_matched_alt, file = "output/bcm_export.csv")
+# write_csv(x = na_region, file = "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/output/bcm_na_export.csv")
+
+bcm_term_seq <- bind_matched_alt %>%
+  mutate(term_int = sapply(term, term_code_to_num))
+
+bcm_term_seq_ex <- bcm_term_seq %>%
+  mutate(cohort_int = sapply(cohort, term_code_to_num))
+bcm_term__cl <- bcm_term_seq_ex %>%
+  select(-pgm_dgr_enroll_tmpl, -alt_pgm_dgr_enroll_tmpl)
+bcm_term__sum <- bcm_term__cl %>%
+  group_by(
+    term,
+    term_int,
+    cohort_int,
+    region,
+    enrollment_type,
+    attendance_type,
+    stu_enroll_type,
+    program
+  ) %>%
+  summarise(
+    row_count = n(),
+    total_tuition_charge = sum(tuition_charge, na.rm = TRUE),
+    total_fa_institutional = sum(fa_institutional, na.rm = TRUE),
+    total_comp_fee = sum(comp_fee, na.rm = TRUE),
+    total_ntr = (total_tuition_charge - total_fa_institutional) + total_comp_fee
+  )
+write_csv(bcm_term__sum, "bcm_term__sum.csv")
+```
+
+```{r  bcm_retention_prep}
+
+bcm_term__g <- bcm_term__cl %>%
+  mutate(session = case_when(
+    substr(cohort_int, 5, 6) == "2" ~ "Fall",
+    substr(cohort_int, 5, 6) == "3" ~ "Spring",
+    substr(cohort_int, 5, 6) == "1" ~ "Summer"
+  ))
+
+
+
+
+
+glimpse(bcm_term__g)
+
+write_csv(x = bcm_term__g, file = "/Volumes/Enrollment_Marketing_Analytics/Cohort Based Projections/bcm_export.csv")
+# write_sheet(data = bcm_term__sum, ss = "https://docs.google.com/spreadsheets/d/1AO7M-oRt4RFaKss_AHhgSYnsITkAuc1VTFpVJnhaY6Q/edit?gid=989055146#gid=989055146", sheet = "bcm_historicals")
+
+part_time_bcm <- bcm_term__g %>%
+  filter(attendance_type == "Part Time")
+
+write_csv(x = part_time_bcm, file = "/Volumes/Enrollment_Marketing_Analytics/Cohort Based Projections/part_time_bcm_export.csv")
+
+
+bcm_term__g_su <- bcm_term__g %>%
+  filter(term == "2024SU") %>%
+  distinct()
+
+write_csv(bcm_term__g_su, "bcm_term__g_su.csv")
+```
+
+```{r  bcb_net_revenue}
+# Spring Group
+{
+  bcb_2025_spring <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2025_spring.csv"
+    )
+  bcb_2024_spring <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2024_spring.csv"
+    )
+  bcb_2023_spring <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2023_spring.csv"
+    )
+  bcb_2022_spring <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2022_spring.csv"
+    )
+  bcb_2021_spring <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2021_spring.csv"
+    )
+  bcb_2020_spring <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2020_spring.csv"
+    )
+  bcb_2019_spring <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2019_spring.csv"
+    )
+  bcb_2018_spring <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2018_spring.csv"
+    )
+}
+
+# Fall Group
+{
+  bcb_2024_fall <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2024_fall.csv"
+    )
+  bcb_2023_fall <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2023_fall.csv"
+    )
+  bcb_2022_fall <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2022_fall.csv"
+    )
+  bcb_2021_fall <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2021_fall.csv"
+    )
+  bcb_2020_fall <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2020_fall.csv"
+    )
+  bcb_2019_fall <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2019_fall.csv"
+    )
+  bcb_2018_fall <-
+    read_csv(
+      "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2018_fall.csv"
+    )
+}
+bcb_2020_fall$`Net Revenue` <-
+  as.numeric(bcb_2020_fall$`Net Revenue`)
+bcb_2025_spring$PEOPLE_ID <- as.numeric(bcb_2025_spring$PEOPLE_ID)
+
+
+#
+```
+
+```{r  bcb_retention_prep}
+
+
+# Bind Spring and Fall together
+bcb_ntr_data_sp <-
+  bind_rows(
+    bcb_2025_spring,
+    bcb_2024_spring,
+    bcb_2023_spring,
+    bcb_2022_spring,
+    bcb_2021_spring,
+    bcb_2020_spring,
+    bcb_2019_spring,
+    bcb_2018_spring,
+    .id = "spring"
+  ) %>%
+  distinct()
+
+bcb_ntr_data_fa <-
+  bind_rows(
+    bcb_2024_fall,
+    bcb_2023_fall,
+    bcb_2022_fall,
+    bcb_2021_fall,
+    bcb_2020_fall,
+    bcb_2019_fall,
+    bcb_2018_fall,
+    .id = "fall"
+  ) %>%
+  distinct()
+
+# xxx
+bcb_ntr_data <-
+  bind_rows(bcb_ntr_data_sp, bcb_ntr_data_fa) %>%
+  distinct() %>%
+  clean_names()
+
+
+
+write_csv(
+  bcb_ntr_data,
+  "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/merged_bcb_osa/bcb_ntr_data.csv"
+)
+
+
+# STOP to check
+
+# bcb_ntr_data <- read_csv(
+#    "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/merged_bcb_osa/bcb_ntr_data.csv"
+# )
+str(bcb_ntr_data)
+bcb_ntr_cl <- bcb_ntr_data %>%
+  select(
+    -spring,
+    -entering_student,
+    -applied_lesson_number,
+    -applied_lesson_charge,
+    -lens_course,
+    -resident_commuter,
+    -food_plan,
+    -meal_charge,
+    -dorm_plan,
+    -housing_charge,
+    -health_charge,
+    -health_waiver,
+    -part_time,
+    -tuition_comp,
+    -net_revenue,
+    -ext_fed_aid,
+    -single_room_charge,
+    -fall
+  ) %>%
+  distinct()
+# left_join with xref table
+bcb_xreference <- read_csv(
+  "/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/bcb_xreference.csv"
+)
+cols_bcb <- bcb_ntr_cl %>%
+  mutate(pgm_dgr_enroll_tmpl = paste0(program, degree, enrollment_source)) %>%
+  distinct()
+
+bcb_xref_cl <- bcb_xreference %>%
+  clean_names()
+
+bcb_cohorts <- cols_bcb %>%
+  left_join(bcb_xref_cl, by = "pgm_dgr_enroll_tmpl")
+
+bcb_match <- bcb_cohorts %>%
+  filter(!is.na(region_xref))
+
+bcb_no_match <- bcb_cohorts %>%
+  filter(is.na(region_xref)) %>%
+  select(
+    -pgm_dgr_enroll_tmpl,
+    -region_xref,
+    -enroll_type_xref,
+    -attend_type_xref,
+    -student_type_xref,
+    -program_xref
+  )
+
+bcb_alts <- bcb_no_match %>%
+  mutate(pgm_dgr_enroll_tmpl = paste0(program, degree, enrollment_source, curriculum)) %>%
+  distinct()
+
+bcb_alts_match <- bcb_alts %>%
+  left_join(bcb_xref_cl, by = "pgm_dgr_enroll_tmpl")
+
+# bcb_alts_ma_cl1 <- bcb_alts_match %>%
+#    rename_with( ~ gsub("\\.y$", "", .), ends_with(".y"))
+
+bcb_combine <- bind_rows(bcb_match, bcb_alts_match)
+
+bcb_cl1 <- bcb_combine %>%
+  mutate(
+    admit_term = case_when(is.na(admit_term) ~ academic_term, TRUE ~ admit_term),
+    admit_year = case_when(is.na(admit_year) ~ academic_year, TRUE ~ academic_year)
+  )
+
+table(bcb_cl1$admit_term, bcb_cl1$admit_year)
+table(bcb_cl1$academic_term, bcb_cl1$academic_year)
+
+# term_code conversion
+bcb_cl2 <- bcb_cl1 %>%
+  mutate(
+    term_code = paste0(academic_year, substr(academic_term, 1, 2))
+  )
+table(bcb_cl2$term_code)
+
+# Term Conversion / Consistency
+admit_cohort <- bcb_cl2 %>%
+  mutate(cohort = case_when(
+    is.na(admit_year) ~ term_code,
+    !is.na(admit_year) ~ paste0(admit_year, substr(admit_term, 1, 2))
+  ))
+table(admit_cohort$cohort)
+
+admit_cohort_int <- admit_cohort %>%
+  mutate(cohort_int = sapply(cohort, term_code_to_num))
+
+table(admit_cohort_int$cohort_int)
+write_csv(x = admit_cohort, file = "/Volumes/Enrollment_Marketing_Analytics/Cohort Based Projections/bcb_export.csv")
+
+bcb_term__sum <- admit_cohort %>%
+  group_by(
+    region_xref,
+    term_code,
+    admit_term,
+    admit_year,
+    enroll_type_xref,
+    attend_type_xref,
+    student_type_xref,
+    program_xref
+  ) %>%
+  summarise(
+    row_count = n(),
+    total_tuition_charge = sum(tuition_charge, na.rm = TRUE),
+    total_fa_institutional = sum(scholarships, na.rm = TRUE),
+    total_comp_fee = sum(comp_charge, na.rm = TRUE),
+    total_ntr = (total_tuition_charge - total_fa_institutional) + total_comp_fee
+  )
+write_csv(bcb_term__sum, "bcb_term__sum.csv")
+
+# write_sheet(
+#   bcb_term__sum,
+#   "https://docs.google.com/spreadsheets/d/1AO7M-oRt4RFaKss_AHhgSYnsITkAuc1VTFpVJnhaY6Q/edit?gid=749683695#gid=749683695",
+#   "bcb_historicals"
+# )
+```
