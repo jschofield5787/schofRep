@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+
+<meta name="author" content="John Schofield" />
+
+<meta name="date" content="2025-05-29" />
+
+<title>Cohort-Based Enrollment and Revenue Modeling Pipeline</title>
+
+<script src="Cohort-Based-Enrollment-and-Revenue-Modeling-Pipeline_files/header-attrs-2.29/header-attrs.js"></script>
+<script src="Cohort-Based-Enrollment-and-Revenue-Modeling-Pipeline_files/jquery-3.6.0/jquery-3.6.0.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+<link href="Cohort-Based-Enrollment-and-Revenue-Modeling-Pipeline_files/bootstrap-4.6.0/bootstrap.min.css" rel="stylesheet" />
+<script src="Cohort-Based-Enrollment-and-Revenue-Modeling-Pipeline_files/bootstrap-4.6.0/bootstrap.bundle.min.js"></script>
+<script src="Cohort-Based-Enrollment-and-Revenue-Modeling-Pipeline_files/bs3compat-0.9.0/transition.js"></script>
+<script src="Cohort-Based-Enrollment-and-Revenue-Modeling-Pipeline_files/bs3compat-0.9.0/tabs.js"></script>
+<script src="Cohort-Based-Enrollment-and-Revenue-Modeling-Pipeline_files/bs3compat-0.9.0/bs3compat.js"></script>
+<script src="Cohort-Based-Enrollment-and-Revenue-Modeling-Pipeline_files/navigation-1.1/tabsets.js"></script>
+<link href="Cohort-Based-Enrollment-and-Revenue-Modeling-Pipeline_files/highlightjs-9.12.0/default.css" rel="stylesheet" />
+<script src="Cohort-Based-Enrollment-and-Revenue-Modeling-Pipeline_files/highlightjs-9.12.0/highlight.js"></script>
+
+<style type="text/css">
+  code{white-space: pre-wrap;}
+  span.smallcaps{font-variant: small-caps;}
+  span.underline{text-decoration: underline;}
+  div.column{display: inline-block; vertical-align: top; width: 50%;}
+  div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+  ul.task-list{list-style: none;}
+    </style>
+
+<style type="text/css">code{white-space: pre;}</style>
+<script type="text/javascript">
+if (window.hljs) {
+  hljs.configure({languages: []});
+  hljs.initHighlightingOnLoad();
+  if (document.readyState && document.readyState === "complete") {
+    window.setTimeout(function() { hljs.initHighlighting(); }, 0);
+  }
+}
+</script>
+
+
+
+
+
+
+
+
+
+<style type = "text/css">
+.main-container {
+  max-width: 940px;
+  margin-left: auto;
+  margin-right: auto;
+}
+img {
+  max-width:100%;
+}
+.tabbed-pane {
+  padding-top: 12px;
+}
+.html-widget {
+  margin-bottom: 20px;
+}
+button.code-folding-btn:focus {
+  outline: none;
+}
+summary {
+  display: list-item;
+}
+details > summary > p:only-child {
+  display: inline;
+}
+pre code {
+  padding: 0;
+}
+</style>
+
+
+
+<!-- tabsets -->
+
+<style type="text/css">
+.tabset-dropdown > .nav-tabs {
+  display: inline-table;
+  max-height: 500px;
+  min-height: 44px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.tabset-dropdown > .nav-tabs > li.active:before, .tabset-dropdown > .nav-tabs.nav-tabs-open:before {
+  content: "\e259";
+  font-family: 'Glyphicons Halflings';
+  display: inline-block;
+  padding: 10px;
+  border-right: 1px solid #ddd;
+}
+
+.tabset-dropdown > .nav-tabs.nav-tabs-open > li.active:before {
+  content: "\e258";
+  font-family: 'Glyphicons Halflings';
+  border: none;
+}
+
+.tabset-dropdown > .nav-tabs > li.active {
+  display: block;
+}
+
+.tabset-dropdown > .nav-tabs > li > a,
+.tabset-dropdown > .nav-tabs > li > a:focus,
+.tabset-dropdown > .nav-tabs > li > a:hover {
+  border: none;
+  display: inline-block;
+  border-radius: 4px;
+  background-color: transparent;
+}
+
+.tabset-dropdown > .nav-tabs.nav-tabs-open > li {
+  display: block;
+  float: none;
+}
+
+.tabset-dropdown > .nav-tabs > li {
+  display: none;
+}
+</style>
+
+<!-- code folding -->
+
+
+
+
+</head>
+
+<body>
+
+
+<div class="container-fluid main-container">
+
+
+
+
+<div id="header">
+
+
+
+<h1 class="title toc-ignore">Cohort-Based Enrollment and Revenue
+Modeling Pipeline</h1>
+<h4 class="author">John Schofield</h4>
+<h4 class="date">2025-05-29</h4>
+
+</div>
+
+
+<p>This report processes and analyzes net tuition revenue (NTR),
+enrollment patterns, and retention cohorts for Berklee’s BCM and BCB
+programs. It integrates historical and current student data from
+multiple internal sources, cleans and transforms them, and produces
+cohort-level summaries to support strategic enrollment management and
+financial forecasting. Office of Student Accounts (OSA) provides the
+historical census snapshots for NTR.</p>
+<p>Key tasks include: • Importing and cleaning datasets from Tableau
+Prep outputs and archived enrollment exports • Calculating term
+sequences and cohort codes using custom functions for comparing academic
+terms • Filtering and matching student-level records to reference
+mappings for accurate program, degree, and enrollment classification •
+Aggregating NTR components (tuition, institutional aid, comprehensive
+fees) by cohort, program, and term • Exporting results to Google Sheets
+and CSV for stakeholder access and downstream use</p>
+<p>Additionally, the script handles alternate matching logic for records
+that do not conform to standard mappings, prepares clean datasets for
+retention modeling, and supports fiscal year forecasting by generating
+low/mid/high enrollment and revenue scenarios.</p>
+<pre class="r"><code>library(readr)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(janitor)
+library(data.table)
+library(lubridate)
+library(readxl)
+library(googlesheets4)
+library(ggplot2)
+library(gt)</code></pre>
+<pre class="r"><code>term_code_to_num &lt;- function(term) {
+  term_year &lt;- as.integer(substr(term, 1, 4))
+  term_sem &lt;- substr(term, 5, 6)
+  if (is.na(term_year)) return(-1)
+  to_add &lt;- switch(term_sem, &quot;SP&quot; = -7, &quot;FA&quot; = 2, &quot;SU&quot; = 1, return(-1))
+  return(term_year * 10 + to_add)
+}
+
+get_next_term &lt;- function(term_num, include_summer = TRUE) {
+  remainder &lt;- term_num %% 10
+  if (remainder == 3) return(term_num + ifelse(include_summer, 8, 9))
+  return(term_num + 1)
+}
+
+term_int_to_str &lt;- function(term) {
+  year &lt;- floor(term / 10)
+  sem &lt;- switch(term %% 10, &quot;1&quot; = &quot;SU&quot;, &quot;2&quot; = &quot;FA&quot;, &quot;3&quot; = {year &lt;- year + 1; &quot;SP&quot;}, stop(&quot;Invalid term&quot;))
+  return(paste0(year, sem))
+}
+
+get_num_terms_between &lt;- function(term_1, term_2, include_summer = TRUE) {
+  dist &lt;- abs(term_1 - term_2)
+  tot &lt;- if (include_summer) (dist %/% 10) * 3 + case_when(dist %% 10 == 1 ~ 1, dist %% 10 == 2 ~ 2, dist %% 10 == 8 ~ 1, dist %% 10 == 9 ~ 2, TRUE ~ 0)
+  else (dist %/% 10) * 2 + case_when(dist %% 10 == 1 ~ 1, dist %% 10 == 9 ~ 1, TRUE ~ 0)
+  return(tot)
+}
+
+get_terms_ahead &lt;- function(term, terms_ahead, include_summer = TRUE) {
+  years_ahead &lt;- if (include_summer) terms_ahead %/% 3 else terms_ahead %/% 2
+  for (i in seq_len(terms_ahead %% ifelse(include_summer, 3, 2))) term &lt;- get_next_term(term)
+  return(term + years_ahead * 10)
+}
+
+# Safe table override
+table &lt;- function(...) base::table(...)</code></pre>
+<pre class="r"><code># Tableau Prep Flow:
+#  Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcm_osa/merged_bcm_osa/bcm_merged_nr.tfl
+
+bcm_merged_nr &lt;- read_csv(
+  &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcm_osa/merged_bcm_osa/bcm_merged_nr.csv&quot;
+)
+
+# BCM NTR Logic / Code ConCat
+bcm_xreference &lt;- read_csv(
+  &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcm_osa/bcm_xreference.csv&quot;
+)
+
+# Archive Distributions
+cohorts_term &lt;- read_csv(
+  &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcm_osa/cohorts_202503_trimmed.csv&quot;
+)
+
+# Tableau Prep Flow
+#  Enrollment_Marketing_Analytics/Student Financial Services Analytics/Affordability/Tableau Prep Flows/Enrollment_Archive_Flow.tfl
+enrollment_archive &lt;- read_csv(
+  &quot;/Volumes/Enrollment_Marketing_Analytics/Student Financial Services Analytics/Affordability/Exports/Enrollment_Archive.csv&quot;
+)
+
+
+# Preserve Original Variable (bcm_merged_nr)
+n_nr_data &lt;- bcm_merged_nr
+# Clean Headers and Remove Non-Numeric Variables
+nr_1 &lt;- n_nr_data %&gt;%
+  distinct() %&gt;%
+  clean_names() %&gt;%
+  # Select columns where the names do not contain numbers
+  select(matches(&quot;^[^0-9]*$|.*_rate$&quot;)) %&gt;%
+  # Create Unique Term Key
+  rename(term_key = bcm_nr_term_key)
+str(nr_1)</code></pre>
+<pre><code>## tibble [80,918 × 20] (S3: tbl_df/tbl/data.frame)
+##  $ enroll_source              : chr [1:80918] &quot;CON&quot; &quot;CON&quot; &quot;CON&quot; &quot;CON&quot; ...
+##  $ term_key                   : chr [1:80918] &quot;471021*2023SP&quot; &quot;676572*2018SP&quot; &quot;783629*2023SP&quot; &quot;787896*2018FA&quot; ...
+##  $ id_stu                     : num [1:80918] 471021 676572 783629 787896 803207 ...
+##  $ term                       : chr [1:80918] &quot;2023SP&quot; &quot;2018SP&quot; &quot;2023SP&quot; &quot;2018FA&quot; ...
+##  $ stat_cur_term_active_code  : chr [1:80918] &quot;Enrolled&quot; &quot;Enrolled&quot; &quot;Enrolled&quot; &quot;Enrolled&quot; ...
+##  $ billing_credits            : num [1:80918] 13 17 14 12 16 6 16 14 5 0 ...
+##  $ private_instruction_credits: num [1:80918] 0 0 0 0 0 1 0 1 0 0 ...
+##  $ student_type               : chr [1:80918] &quot;Undergraduate Degree&quot; &quot;Masters Degree - Valencia Campus&quot; &quot;Undergraduate Degree&quot; &quot;Undergraduate Degree&quot; ...
+##  $ student_program            : chr [1:80918] &quot;Undergraduate&quot; &quot;Graduate&quot; &quot;Undergraduate&quot; &quot;Undergraduate&quot; ...
+##  $ program_active             : chr [1:80918] &quot;BM4.MTHE&quot; &quot;MM.SFTV&quot; &quot;BM4.FILM&quot; &quot;BM4.CWPR&quot; ...
+##  $ type                       : chr [1:80918] &quot;BM&quot; &quot;MVAL&quot; &quot;BM&quot; &quot;BM&quot; ...
+##  $ tuition_remission          : num [1:80918] 0 0 0 0 0 0 0 0 0 0 ...
+##  $ tuition_withdrawal_charge  : num [1:80918] 0 0 0 0 0 0 0 0 0 0 ...
+##  $ tuition_charge             : num [1:80918] 23475 13837 23475 21440 22734 ...
+##  $ comp_fee                   : num [1:80918] 690 0 690 630 666 325 610 650 325 0 ...
+##  $ fa_institutional           : num [1:80918] 1562 1667 26003 8750 11000 ...
+##  $ misc_fees                  : num [1:80918] 0 0 0 0 0 0 0 0 0 0 ...
+##  $ admit_status               : chr [1:80918] NA NA NA NA ...
+##  $ alien_status               : chr [1:80918] NA NA NA NA ...
+##  $ gender                     : chr [1:80918] NA NA NA NA ...</code></pre>
+<pre class="r"><code># Handle Non-Degree&#39;s and Misc Student Types
+nr_2 &lt;- nr_1 %&gt;%
+  filter(!is.na(student_type) | !is.na(program_active)) %&gt;%
+  filter(
+    program_active != &quot;UG.POST&quot; &amp;
+      program_active != &quot;GRAD.UG&quot; &amp;
+      program_active != &quot;SNM.MISC&quot; &amp;
+      program_active != &quot;SNM.FAST&quot; &amp; enroll_source != &quot;INA&quot;
+  ) %&gt;%
+  distinct()
+dim(nr_2)</code></pre>
+<pre><code>## [1] 80918    20</code></pre>
+<pre class="r"><code># Ensure the number of term_keys matches the number of rows
+{
+  length(unique(nr_2$term_key))
+  length(nr_2$term_key)
+  length(nr_2$term_key) - length(unique(nr_2$term_key))
+}</code></pre>
+<pre><code>## [1] 0</code></pre>
+<pre class="r"><code>nr_3 &lt;- nr_2
+str(nr_3)</code></pre>
+<pre><code>## tibble [80,918 × 20] (S3: tbl_df/tbl/data.frame)
+##  $ enroll_source              : chr [1:80918] &quot;CON&quot; &quot;CON&quot; &quot;CON&quot; &quot;CON&quot; ...
+##  $ term_key                   : chr [1:80918] &quot;471021*2023SP&quot; &quot;676572*2018SP&quot; &quot;783629*2023SP&quot; &quot;787896*2018FA&quot; ...
+##  $ id_stu                     : num [1:80918] 471021 676572 783629 787896 803207 ...
+##  $ term                       : chr [1:80918] &quot;2023SP&quot; &quot;2018SP&quot; &quot;2023SP&quot; &quot;2018FA&quot; ...
+##  $ stat_cur_term_active_code  : chr [1:80918] &quot;Enrolled&quot; &quot;Enrolled&quot; &quot;Enrolled&quot; &quot;Enrolled&quot; ...
+##  $ billing_credits            : num [1:80918] 13 17 14 12 16 6 16 14 5 0 ...
+##  $ private_instruction_credits: num [1:80918] 0 0 0 0 0 1 0 1 0 0 ...
+##  $ student_type               : chr [1:80918] &quot;Undergraduate Degree&quot; &quot;Masters Degree - Valencia Campus&quot; &quot;Undergraduate Degree&quot; &quot;Undergraduate Degree&quot; ...
+##  $ student_program            : chr [1:80918] &quot;Undergraduate&quot; &quot;Graduate&quot; &quot;Undergraduate&quot; &quot;Undergraduate&quot; ...
+##  $ program_active             : chr [1:80918] &quot;BM4.MTHE&quot; &quot;MM.SFTV&quot; &quot;BM4.FILM&quot; &quot;BM4.CWPR&quot; ...
+##  $ type                       : chr [1:80918] &quot;BM&quot; &quot;MVAL&quot; &quot;BM&quot; &quot;BM&quot; ...
+##  $ tuition_remission          : num [1:80918] 0 0 0 0 0 0 0 0 0 0 ...
+##  $ tuition_withdrawal_charge  : num [1:80918] 0 0 0 0 0 0 0 0 0 0 ...
+##  $ tuition_charge             : num [1:80918] 23475 13837 23475 21440 22734 ...
+##  $ comp_fee                   : num [1:80918] 690 0 690 630 666 325 610 650 325 0 ...
+##  $ fa_institutional           : num [1:80918] 1562 1667 26003 8750 11000 ...
+##  $ misc_fees                  : num [1:80918] 0 0 0 0 0 0 0 0 0 0 ...
+##  $ admit_status               : chr [1:80918] NA NA NA NA ...
+##  $ alien_status               : chr [1:80918] NA NA NA NA ...
+##  $ gender                     : chr [1:80918] NA NA NA NA ...</code></pre>
+<pre class="r"><code># Join NTR dataset with historical cohorts dataset
+nr_4 &lt;- nr_3 %&gt;%
+  left_join(cohorts_term, by = &quot;id_stu&quot;)
+
+# Take only term_key and matric source from the archives
+arch_1 &lt;- enrollment_archive %&gt;%
+  select(Term_Key, `BCM Matriculation Source`) %&gt;%
+  clean_names() %&gt;%
+  distinct()
+
+# Join archive to NTR and Cohort by term_key
+nr_4_archive &lt;- nr_4 %&gt;%
+  left_join(arch_1, by = &quot;term_key&quot;)
+
+
+# Clean and Calculate Matriculation Source Summary Field
+cols_nr &lt;- nr_4_archive %&gt;%
+  mutate(
+    enroll_source_tmpl = case_when(
+      term == cohort ~ &quot;ENT&quot;,
+      bcm_matriculation_source == &quot;ENT&quot; ~ &quot;ENT&quot;,
+      bcm_matriculation_source == &quot;CON&quot; ~ &quot;CON/RET&quot;,
+      bcm_matriculation_source == &quot;RET&quot; ~ &quot;CON/RET&quot;,
+      enroll_source == &quot;ENT&quot; ~ &quot;ENT&quot;,
+      enroll_source == &quot;CON&quot; ~ &quot;CON/RET&quot;,
+      enroll_source == &quot;RET&quot; ~ &quot;CON/RET&quot;
+    )
+  )
+table(cols_nr$enroll_source_tmpl)</code></pre>
+<pre><code>## 
+## CON/RET     ENT 
+##   68481   12437</code></pre>
+<pre class="r"><code># ConCat Program/Degree/Enrollment - Source Student Program + Student Type + enroll_source_tmpl
+cols_nr_2 &lt;- cols_nr %&gt;%
+  mutate(
+    pgm_dgr_enroll_tmpl = paste0(student_program, student_type, enroll_source_tmpl),
+    alt_pgm_dgr_enroll_tmpl = paste0(pgm_dgr_enroll_tmpl, program_active)
+  )
+
+# 1 of 2 Join - left_join with xref table
+joined &lt;- cols_nr_2 %&gt;%
+  left_join(bcm_xreference, by = &quot;pgm_dgr_enroll_tmpl&quot;)
+
+# Remove Unmatched
+matched &lt;- joined %&gt;%
+  filter(!is.na(Region))
+
+# Isolate Unmatched
+unmatched &lt;- joined %&gt;%
+  filter(is.na(Region))
+
+# 2 of 2 - left_join with xref
+bcm_xreference_alt &lt;- bcm_xreference %&gt;%
+  rename(alt_pgm_dgr_enroll_tmpl = pgm_dgr_enroll_tmpl)
+
+find_alt_unmatch &lt;- unmatched %&gt;%
+  left_join(bcm_xreference_alt, by = &quot;alt_pgm_dgr_enroll_tmpl&quot;)
+
+alt_unmatch_clean_1 &lt;- find_alt_unmatch %&gt;%
+  select(-ends_with(&quot;.x&quot;))
+
+alt_unmatch_clean_2 &lt;- alt_unmatch_clean_1 %&gt;%
+  rename_with(~ gsub(&quot;\\.y$&quot;, &quot;&quot;, .), ends_with(&quot;.y&quot;))
+
+# Rejoin with Alternate Pairing
+bind_matched_alt &lt;- bind_rows(matched, alt_unmatch_clean_2)
+bind_matched_alt &lt;- clean_names(bind_matched_alt)
+bind_matched_alt &lt;- bind_matched_alt %&gt;%
+  rename(stu_enroll_type = student_type_2)
+
+bind_matched_alt &lt;- bind_matched_alt %&gt;%
+  filter(!is.na(enrollment_type))
+
+na_region &lt;- bind_matched_alt %&gt;%
+  filter(is.na(enrollment_type))
+
+# write_csv(x = bind_matched_alt, file = &quot;output/bcm_export.csv&quot;)
+# write_csv(x = na_region, file = &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/output/bcm_na_export.csv&quot;)
+
+bcm_term_seq &lt;- bind_matched_alt %&gt;%
+  mutate(term_int = sapply(term, term_code_to_num))
+
+bcm_term_seq_ex &lt;- bcm_term_seq %&gt;%
+  mutate(cohort_int = sapply(cohort, term_code_to_num))
+bcm_term__cl &lt;- bcm_term_seq_ex %&gt;%
+  select(-pgm_dgr_enroll_tmpl, -alt_pgm_dgr_enroll_tmpl)
+bcm_term__sum &lt;- bcm_term__cl %&gt;%
+  group_by(
+    term,
+    term_int,
+    cohort_int,
+    region,
+    enrollment_type,
+    attendance_type,
+    stu_enroll_type,
+    program
+  ) %&gt;%
+  summarise(
+    row_count = n(),
+    total_tuition_charge = sum(tuition_charge, na.rm = TRUE),
+    total_fa_institutional = sum(fa_institutional, na.rm = TRUE),
+    total_comp_fee = sum(comp_fee, na.rm = TRUE),
+    total_ntr = (total_tuition_charge - total_fa_institutional) + total_comp_fee
+  )
+write_csv(bcm_term__sum, &quot;bcm_term__sum.csv&quot;)</code></pre>
+<pre class="r"><code>bcm_term__g &lt;- bcm_term__cl %&gt;%
+  mutate(session = case_when(
+    substr(cohort_int, 5, 6) == &quot;2&quot; ~ &quot;Fall&quot;,
+    substr(cohort_int, 5, 6) == &quot;3&quot; ~ &quot;Spring&quot;,
+    substr(cohort_int, 5, 6) == &quot;1&quot; ~ &quot;Summer&quot;
+  ))
+
+
+
+
+
+glimpse(bcm_term__g)</code></pre>
+<pre><code>## Rows: 80,889
+## Columns: 31
+## $ enroll_source               &lt;chr&gt; &quot;CON&quot;, &quot;CON&quot;, &quot;CON&quot;, &quot;CON&quot;, &quot;CON&quot;, &quot;RET&quot;, …
+## $ term_key                    &lt;chr&gt; &quot;471021*2023SP&quot;, &quot;783629*2023SP&quot;, &quot;787896*…
+## $ id_stu                      &lt;dbl&gt; 471021, 783629, 787896, 803207, 804657, 80…
+## $ term                        &lt;chr&gt; &quot;2023SP&quot;, &quot;2023SP&quot;, &quot;2018FA&quot;, &quot;2021FA&quot;, &quot;2…
+## $ stat_cur_term_active_code   &lt;chr&gt; &quot;Enrolled&quot;, &quot;Enrolled&quot;, &quot;Enrolled&quot;, &quot;Enrol…
+## $ billing_credits             &lt;dbl&gt; 13, 14, 12, 16, 6, 16, 14, 5, 0, 6, 16, 13…
+## $ private_instruction_credits &lt;dbl&gt; 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, …
+## $ student_type                &lt;chr&gt; &quot;Undergraduate Degree&quot;, &quot;Undergraduate Deg…
+## $ student_program             &lt;chr&gt; &quot;Undergraduate&quot;, &quot;Undergraduate&quot;, &quot;Undergr…
+## $ program_active              &lt;chr&gt; &quot;BM4.MTHE&quot;, &quot;BM4.FILM&quot;, &quot;BM4.CWPR&quot;, &quot;BM5.C…
+## $ type                        &lt;chr&gt; &quot;BM&quot;, &quot;BM&quot;, &quot;BM&quot;, &quot;BM&quot;, &quot;PT&quot;, &quot;BM&quot;, &quot;BM&quot;, …
+## $ tuition_remission           &lt;dbl&gt; 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, …
+## $ tuition_withdrawal_charge   &lt;dbl&gt; 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, …
+## $ tuition_charge              &lt;dbl&gt; 23475, 23475, 21440, 22734, 8075, 20765, 2…
+## $ comp_fee                    &lt;dbl&gt; 690, 690, 630, 666, 325, 610, 650, 325, 0,…
+## $ fa_institutional            &lt;dbl&gt; 1562, 26003, 8750, 11000, 0, 14500, 32150,…
+## $ misc_fees                   &lt;dbl&gt; 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, …
+## $ admit_status                &lt;chr&gt; NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA…
+## $ alien_status                &lt;chr&gt; NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA…
+## $ gender                      &lt;chr&gt; NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA…
+## $ cohort                      &lt;chr&gt; &quot;2021SP&quot;, &quot;2020FA&quot;, &quot;2015FA&quot;, &quot;2019FA&quot;, &quot;2…
+## $ bcm_matriculation_source    &lt;chr&gt; &quot;CON&quot;, &quot;CON&quot;, NA, &quot;CON&quot;, &quot;CON&quot;, NA, &quot;CON&quot;,…
+## $ enroll_source_tmpl          &lt;chr&gt; &quot;CON/RET&quot;, &quot;CON/RET&quot;, &quot;CON/RET&quot;, &quot;CON/RET&quot;…
+## $ region                      &lt;chr&gt; &quot;College&quot;, &quot;College&quot;, &quot;College&quot;, &quot;College&quot;…
+## $ enrollment_type             &lt;chr&gt; &quot;Undergrad&quot;, &quot;Undergrad&quot;, &quot;Undergrad&quot;, &quot;Un…
+## $ attendance_type             &lt;chr&gt; &quot;Full Time&quot;, &quot;Full Time&quot;, &quot;Full Time&quot;, &quot;Fu…
+## $ stu_enroll_type             &lt;chr&gt; &quot;Continuing&quot;, &quot;Continuing&quot;, &quot;Continuing&quot;, …
+## $ program                     &lt;chr&gt; &quot;Degree&quot;, &quot;Degree&quot;, &quot;Degree&quot;, &quot;Degree&quot;, &quot;D…
+## $ term_int                    &lt;dbl&gt; 20223, 20223, 20182, 20212, 20192, 20173, …
+## $ cohort_int                  &lt;dbl&gt; 20203, 20202, 20152, 20192, 20173, 20152, …
+## $ session                     &lt;chr&gt; &quot;Spring&quot;, &quot;Fall&quot;, &quot;Fall&quot;, &quot;Fall&quot;, &quot;Spring&quot;…</code></pre>
+<pre class="r"><code>write_csv(x = bcm_term__g, file = &quot;/Volumes/Enrollment_Marketing_Analytics/Cohort Based Projections/bcm_export.csv&quot;)
+# write_sheet(data = bcm_term__sum, ss = &quot;https://docs.google.com/spreadsheets/d/1AO7M-oRt4RFaKss_AHhgSYnsITkAuc1VTFpVJnhaY6Q/edit?gid=989055146#gid=989055146&quot;, sheet = &quot;bcm_historicals&quot;)
+
+part_time_bcm &lt;- bcm_term__g %&gt;%
+  filter(attendance_type == &quot;Part Time&quot;)
+
+write_csv(x = part_time_bcm, file = &quot;/Volumes/Enrollment_Marketing_Analytics/Cohort Based Projections/part_time_bcm_export.csv&quot;)
+
+
+bcm_term__g_su &lt;- bcm_term__g %&gt;%
+  filter(term == &quot;2024SU&quot;) %&gt;%
+  distinct()
+
+write_csv(bcm_term__g_su, &quot;bcm_term__g_su.csv&quot;)</code></pre>
+<pre class="r"><code># Spring Group
+{
+  bcb_2025_spring &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2025_spring.csv&quot;
+    )
+  bcb_2024_spring &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2024_spring.csv&quot;
+    )
+  bcb_2023_spring &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2023_spring.csv&quot;
+    )
+  bcb_2022_spring &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2022_spring.csv&quot;
+    )
+  bcb_2021_spring &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2021_spring.csv&quot;
+    )
+  bcb_2020_spring &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2020_spring.csv&quot;
+    )
+  bcb_2019_spring &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2019_spring.csv&quot;
+    )
+  bcb_2018_spring &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2018_spring.csv&quot;
+    )
+}
+
+# Fall Group
+{
+  bcb_2024_fall &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2024_fall.csv&quot;
+    )
+  bcb_2023_fall &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2023_fall.csv&quot;
+    )
+  bcb_2022_fall &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2022_fall.csv&quot;
+    )
+  bcb_2021_fall &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2021_fall.csv&quot;
+    )
+  bcb_2020_fall &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2020_fall.csv&quot;
+    )
+  bcb_2019_fall &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2019_fall.csv&quot;
+    )
+  bcb_2018_fall &lt;-
+    read_csv(
+      &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/raw_bcb_osa/bcb_2018_fall.csv&quot;
+    )
+}
+bcb_2020_fall$`Net Revenue` &lt;-
+  as.numeric(bcb_2020_fall$`Net Revenue`)
+bcb_2025_spring$PEOPLE_ID &lt;- as.numeric(bcb_2025_spring$PEOPLE_ID)
+
+
+#</code></pre>
+<pre class="r"><code># Bind Spring and Fall together
+bcb_ntr_data_sp &lt;-
+  bind_rows(
+    bcb_2025_spring,
+    bcb_2024_spring,
+    bcb_2023_spring,
+    bcb_2022_spring,
+    bcb_2021_spring,
+    bcb_2020_spring,
+    bcb_2019_spring,
+    bcb_2018_spring,
+    .id = &quot;spring&quot;
+  ) %&gt;%
+  distinct()
+
+bcb_ntr_data_fa &lt;-
+  bind_rows(
+    bcb_2024_fall,
+    bcb_2023_fall,
+    bcb_2022_fall,
+    bcb_2021_fall,
+    bcb_2020_fall,
+    bcb_2019_fall,
+    bcb_2018_fall,
+    .id = &quot;fall&quot;
+  ) %&gt;%
+  distinct()
+
+# xxx
+bcb_ntr_data &lt;-
+  bind_rows(bcb_ntr_data_sp, bcb_ntr_data_fa) %&gt;%
+  distinct() %&gt;%
+  clean_names()
+
+
+
+write_csv(
+  bcb_ntr_data,
+  &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/merged_bcb_osa/bcb_ntr_data.csv&quot;
+)
+
+
+# STOP to check
+
+# bcb_ntr_data &lt;- read_csv(
+#    &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/merged_bcb_osa/bcb_ntr_data.csv&quot;
+# )
+str(bcb_ntr_data)</code></pre>
+<pre><code>## tibble [12,701 × 40] (S3: tbl_df/tbl/data.frame)
+##  $ spring                 : chr [1:12701] &quot;1&quot; &quot;1&quot; &quot;1&quot; &quot;1&quot; ...
+##  $ people_id              : num [1:12701] 11421 12034 13090 13467 14160 ...
+##  $ academic_year          : num [1:12701] 2025 2025 2025 2025 2025 ...
+##  $ academic_term          : chr [1:12701] &quot;SPRING&quot; &quot;SPRING&quot; &quot;SPRING&quot; &quot;SPRING&quot; ...
+##  $ academic_session       : chr [1:12701] &quot;STANDARD&quot; &quot;STANDARD&quot; &quot;STANDARD&quot; &quot;STANDARD&quot; ...
+##  $ enrollment_status      : chr [1:12701] &quot;ENRL&quot; &quot;ENRL&quot; &quot;ENRL&quot; &quot;ENRL&quot; ...
+##  $ enrollment_source      : chr [1:12701] &quot;CON/RET&quot; &quot;CON/RET&quot; &quot;CON/RET&quot; &quot;CON/RET&quot; ...
+##  $ entering_student       : chr [1:12701] NA NA &quot;X&quot; NA ...
+##  $ enrollment_load        : chr [1:12701] &quot;FULL&quot; &quot;FULL&quot; &quot;FULL&quot; &quot;FULL&quot; ...
+##  $ class_level            : chr [1:12701] &quot;GRD2&quot; &quot;GRD2&quot; &quot;GRD1&quot; &quot;GRD1&quot; ...
+##  $ program                : chr [1:12701] &quot;GRAD&quot; &quot;GRAD&quot; &quot;GRAD&quot; &quot;GRAD&quot; ...
+##  $ degree                 : chr [1:12701] &quot;MM&quot; &quot;MM&quot; &quot;MM&quot; &quot;PERF&quot; ...
+##  $ curriculum             : chr [1:12701] &quot;VLNPRF&quot; &quot;VCLPED&quot; &quot;VLNPRF&quot; &quot;HORPRF&quot; ...
+##  $ credits                : num [1:12701] 10 8 10 5 10 12 10 17 10 3 ...
+##  $ admit_term             : chr [1:12701] &quot;FALL&quot; &quot;FALL&quot; &quot;FALL&quot; &quot;FALL&quot; ...
+##  $ admit_year             : num [1:12701] 2023 2023 2024 2024 2024 ...
+##  $ tuition_charge         : num [1:12701] 25790 25790 25790 15620 25790 ...
+##  $ comp_charge            : num [1:12701] 1170 1170 1170 1170 1170 1170 1170 1170 1170 585 ...
+##  $ applied_lesson_number  : num [1:12701] NA NA NA NA NA NA NA NA NA 1 ...
+##  $ applied_lesson_charge  : num [1:12701] NA NA NA NA NA NA NA NA NA 7260 ...
+##  $ lens_course            : num [1:12701] NA NA NA NA NA NA NA NA NA NA ...
+##  $ tuit_overload_charge   : num [1:12701] NA NA NA NA NA NA NA NA NA NA ...
+##  $ tuition_withdraw_charge: num [1:12701] NA NA NA NA NA NA NA NA NA NA ...
+##  $ tuition_remission      : num [1:12701] NA NA NA NA NA NA NA NA NA NA ...
+##  $ misc_fees              : num [1:12701] NA NA NA NA NA NA NA NA NA NA ...
+##  $ resident_commuter      : chr [1:12701] &quot;C&quot; &quot;C&quot; &quot;C&quot; &quot;C&quot; ...
+##  $ food_plan              : chr [1:12701] NA NA NA NA ...
+##  $ meal_charge            : num [1:12701] NA NA NA NA NA NA NA NA NA NA ...
+##  $ dorm_plan              : chr [1:12701] NA NA NA NA ...
+##  $ housing_charge         : num [1:12701] NA NA NA NA NA NA NA NA NA NA ...
+##  $ health_charge          : num [1:12701] NA NA NA NA NA NA NA NA NA NA ...
+##  $ health_waiver          : num [1:12701] NA NA NA NA NA NA NA NA NA NA ...
+##  $ scholarships           : num [1:12701] 16000 16000 13500 10000 25790 ...
+##  $ part_time              : chr [1:12701] NA NA NA NA ...
+##  $ tuition_comp           : num [1:12701] 26960 26960 26960 16790 26960 ...
+##  $ net_revenue            : num [1:12701] 10960 10960 13460 6790 1170 ...
+##  $ ext_fed_aid            : num [1:12701] 10142 23098 NA NA 10142 ...
+##  $ student_type           : chr [1:12701] NA NA NA NA ...
+##  $ single_room_charge     : num [1:12701] NA NA NA NA NA NA NA NA NA NA ...
+##  $ fall                   : chr [1:12701] NA NA NA NA ...</code></pre>
+<pre class="r"><code>bcb_ntr_cl &lt;- bcb_ntr_data %&gt;%
+  select(
+    -spring,
+    -entering_student,
+    -applied_lesson_number,
+    -applied_lesson_charge,
+    -lens_course,
+    -resident_commuter,
+    -food_plan,
+    -meal_charge,
+    -dorm_plan,
+    -housing_charge,
+    -health_charge,
+    -health_waiver,
+    -part_time,
+    -tuition_comp,
+    -net_revenue,
+    -ext_fed_aid,
+    -single_room_charge,
+    -fall
+  ) %&gt;%
+  distinct()
+# left_join with xref table
+bcb_xreference &lt;- read_csv(
+  &quot;/Volumes/Enrollment_Marketing_Analytics/Enrollment Models/Net_Tuition_Revenue/osa_data/bcb_osa/bcb_xreference.csv&quot;
+)
+cols_bcb &lt;- bcb_ntr_cl %&gt;%
+  mutate(pgm_dgr_enroll_tmpl = paste0(program, degree, enrollment_source)) %&gt;%
+  distinct()
+
+bcb_xref_cl &lt;- bcb_xreference %&gt;%
+  clean_names()
+
+bcb_cohorts &lt;- cols_bcb %&gt;%
+  left_join(bcb_xref_cl, by = &quot;pgm_dgr_enroll_tmpl&quot;)
+
+bcb_match &lt;- bcb_cohorts %&gt;%
+  filter(!is.na(region_xref))
+
+bcb_no_match &lt;- bcb_cohorts %&gt;%
+  filter(is.na(region_xref)) %&gt;%
+  select(
+    -pgm_dgr_enroll_tmpl,
+    -region_xref,
+    -enroll_type_xref,
+    -attend_type_xref,
+    -student_type_xref,
+    -program_xref
+  )
+
+bcb_alts &lt;- bcb_no_match %&gt;%
+  mutate(pgm_dgr_enroll_tmpl = paste0(program, degree, enrollment_source, curriculum)) %&gt;%
+  distinct()
+
+bcb_alts_match &lt;- bcb_alts %&gt;%
+  left_join(bcb_xref_cl, by = &quot;pgm_dgr_enroll_tmpl&quot;)
+
+# bcb_alts_ma_cl1 &lt;- bcb_alts_match %&gt;%
+#    rename_with( ~ gsub(&quot;\\.y$&quot;, &quot;&quot;, .), ends_with(&quot;.y&quot;))
+
+bcb_combine &lt;- bind_rows(bcb_match, bcb_alts_match)
+
+bcb_cl1 &lt;- bcb_combine %&gt;%
+  mutate(
+    admit_term = case_when(is.na(admit_term) ~ academic_term, TRUE ~ admit_term),
+    admit_year = case_when(is.na(admit_year) ~ academic_year, TRUE ~ academic_year)
+  )
+
+table(bcb_cl1$admit_term, bcb_cl1$admit_year)</code></pre>
+<pre><code>##         
+##          2018 2019 2020 2021 2022 2023 2024 2025
+##   FALL   1663 1647 1513 1496 1646 1685 1751  868
+##   SPRING   33   28   21   38   20   26   23    7
+##   SUMMER   30   37   38   55   49   19    6    2</code></pre>
+<pre class="r"><code>table(bcb_cl1$academic_term, bcb_cl1$academic_year)</code></pre>
+<pre><code>##         
+##          2018 2019 2020 2021 2022 2023 2024 2025
+##   FALL    886  852  748  868  885  886  906    0
+##   SPRING  840  860  824  721  830  844  874  877</code></pre>
+<pre class="r"><code># term_code conversion
+bcb_cl2 &lt;- bcb_cl1 %&gt;%
+  mutate(
+    term_code = paste0(academic_year, substr(academic_term, 1, 2))
+  )
+table(bcb_cl2$term_code)</code></pre>
+<pre><code>## 
+## 2018FA 2018SP 2019FA 2019SP 2020FA 2020SP 2021FA 2021SP 2022FA 2022SP 2023FA 
+##    886    840    852    860    748    824    868    721    885    830    886 
+## 2023SP 2024FA 2024SP 2025SP 
+##    844    906    874    877</code></pre>
+<pre class="r"><code># Term Conversion / Consistency
+admit_cohort &lt;- bcb_cl2 %&gt;%
+  mutate(cohort = case_when(
+    is.na(admit_year) ~ term_code,
+    !is.na(admit_year) ~ paste0(admit_year, substr(admit_term, 1, 2))
+  ))
+table(admit_cohort$cohort)</code></pre>
+<pre><code>## 
+## 2018FA 2018SP 2018SU 2019FA 2019SP 2019SU 2020FA 2020SP 2020SU 2021FA 2021SP 
+##   1663     33     30   1647     28     37   1513     21     38   1496     38 
+## 2021SU 2022FA 2022SP 2022SU 2023FA 2023SP 2023SU 2024FA 2024SP 2024SU 2025FA 
+##     55   1646     20     49   1685     26     19   1751     23      6    868 
+## 2025SP 2025SU 
+##      7      2</code></pre>
+<pre class="r"><code>admit_cohort_int &lt;- admit_cohort %&gt;%
+  mutate(cohort_int = sapply(cohort, term_code_to_num))
+
+table(admit_cohort_int$cohort_int)</code></pre>
+<pre><code>## 
+## 20173 20181 20182 20183 20191 20192 20193 20201 20202 20203 20211 20212 20213 
+##    33    30  1663    28    37  1647    21    38  1513    38    55  1496    20 
+## 20221 20222 20223 20231 20232 20233 20241 20242 20243 20251 20252 
+##    49  1646    26    19  1685    23     6  1751     7     2   868</code></pre>
+<pre class="r"><code>write_csv(x = admit_cohort, file = &quot;/Volumes/Enrollment_Marketing_Analytics/Cohort Based Projections/bcb_export.csv&quot;)
+
+bcb_term__sum &lt;- admit_cohort %&gt;%
+  group_by(
+    region_xref,
+    term_code,
+    admit_term,
+    admit_year,
+    enroll_type_xref,
+    attend_type_xref,
+    student_type_xref,
+    program_xref
+  ) %&gt;%
+  summarise(
+    row_count = n(),
+    total_tuition_charge = sum(tuition_charge, na.rm = TRUE),
+    total_fa_institutional = sum(scholarships, na.rm = TRUE),
+    total_comp_fee = sum(comp_charge, na.rm = TRUE),
+    total_ntr = (total_tuition_charge - total_fa_institutional) + total_comp_fee
+  )
+write_csv(bcb_term__sum, &quot;bcb_term__sum.csv&quot;)
+
+# write_sheet(
+#   bcb_term__sum,
+#   &quot;https://docs.google.com/spreadsheets/d/1AO7M-oRt4RFaKss_AHhgSYnsITkAuc1VTFpVJnhaY6Q/edit?gid=749683695#gid=749683695&quot;,
+#   &quot;bcb_historicals&quot;
+# )</code></pre>
+
+
+
+
+</div>
+
+<script>
+
+// add bootstrap table styles to pandoc tables
+function bootstrapStylePandocTables() {
+  $('tr.odd').parent('tbody').parent('table').addClass('table table-condensed');
+}
+$(document).ready(function () {
+  bootstrapStylePandocTables();
+});
+
+
+</script>
+
+<!-- tabsets -->
+
+<script>
+$(document).ready(function () {
+  window.buildTabsets("TOC");
+});
+
+$(document).ready(function () {
+  $('.tabset-dropdown > .nav-tabs > li').click(function () {
+    $(this).parent().toggleClass('nav-tabs-open');
+  });
+});
+</script>
+
+<!-- code folding -->
+
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>
